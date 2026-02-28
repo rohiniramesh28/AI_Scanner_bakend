@@ -8,6 +8,15 @@ from PIL import Image
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 
+from image_search import search_book, add_book
+from firebase_service import save_book_for_user, user_has_book, verify_user
+
+# -------- FLOW 2 IMPORTS --------
+from vision_ai.vision import detect_book
+from vision_ai.book_fetcher import get_book_info
+from vision_ai.ai_summary import summarize_book
+
+
 app = FastAPI()
 
 UPLOAD_DIR = "uploads"
@@ -18,11 +27,9 @@ index_lock = Lock()
 
 
 # =========================================================
-# 🔐 AUTH HELPER
+# 🔐 AUTH HELPER (CRITICAL FIX)
 # =========================================================
 async def get_uid(request: Request):
-    from firebase_service import verify_user   # lazy import
-
     auth_header = request.headers.get("Authorization")
 
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -77,8 +84,6 @@ def save_temp(file: UploadFile):
 # =========================================================
 @app.post("/scan")
 async def scan(request: Request, file: UploadFile = File(...)):
-    from image_search import search_book
-    from firebase_service import user_has_book
 
     uid = await get_uid(request)
     if not uid:
@@ -113,26 +118,32 @@ async def scan(request: Request, file: UploadFile = File(...)):
 
 
 # =========================================================
-# 📷 ADD BOOK
+# 📷 ADD BOOK (LEARN)
 # =========================================================
 @app.post("/add")
 async def add(request: Request, file: UploadFile = File(...)):
-    from image_search import search_book, add_book
-    from firebase_service import save_book_for_user, user_has_book
 
     uid = await get_uid(request)
     if not uid:
         return JSONResponse(status_code=401, content={"status": "unauthorized"})
 
-    path = save_temp(file)
+    path = None
+
+    try:
+        path = save_temp(file)
+    except ValueError:
+        return JSONResponse(status_code=413, content={"status": "file_too_large"})
 
     if not validate_image(path):
-        os.remove(path)
+        if os.path.exists(path):
+            os.remove(path)
         return JSONResponse(status_code=400, content={"status": "invalid_image"})
 
     try:
+        # check already exists
         book, score = await asyncio.to_thread(search_book, path)
 
+        # ---------- EXISTING ----------
         if book is not None:
             title = book["title"]
 
@@ -142,6 +153,7 @@ async def add(request: Request, file: UploadFile = File(...)):
             save_book_for_user(uid, title)
             return {"status": "saved_existing", "title": title}
 
+        # ---------- NEW ----------
         unique_title = f"Book_{uuid.uuid4().hex[:8]}"
 
         with index_lock:
@@ -151,19 +163,19 @@ async def add(request: Request, file: UploadFile = File(...)):
 
         return {"status": "saved_new", "title": unique_title}
 
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
     finally:
-        if os.path.exists(path):
+        if path and os.path.exists(path):
             os.remove(path)
 
 
 # =========================================================
-# 🤖 FLOW-2 → AI EXPLAIN
+# 🤖 FLOW-2 → AI BOOK EXPLAIN
 # =========================================================
 @app.post("/ask-book-ai")
 async def ask_book_ai(file: UploadFile = File(...)):
-    from vision_ai.vision import detect_book
-    from vision_ai.book_fetcher import get_book_info
-    from vision_ai.ai_summary import summarize_book
 
     path = f"{UPLOAD_DIR}/{uuid.uuid4().hex}.jpg"
 
@@ -192,6 +204,9 @@ async def ask_book_ai(file: UploadFile = File(...)):
             "title": book["title"],
             "overview": overview
         }
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
         if os.path.exists(path):
