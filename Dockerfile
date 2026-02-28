@@ -3,9 +3,6 @@ FROM python:3.10-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    g++ \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
@@ -27,4 +24,8 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 RUN mkdir -p uploads data
-CMD ["uvicorn","main:app","--host","0.0.0.0","--port","8000"]
+
+# DO NOT warm model during build (Render OOM cause)
+# remove startup warmup here
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1"]
