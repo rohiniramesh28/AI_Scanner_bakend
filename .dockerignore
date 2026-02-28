@@ -2,5 +2,17 @@ venv
 __pycache__
 uploads
 *.pyc
+*.pyo
+*.pyd
+*.db
+.env
+
+
 .git
 .gitignore
+serviceAccountKey.json
+
+
+uploads/*
+venv
+.venv
