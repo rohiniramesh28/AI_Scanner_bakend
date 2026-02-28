@@ -28,4 +28,4 @@ RUN mkdir -p uploads data
 # DO NOT warm model during build (Render OOM cause)
 # remove startup warmup here
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"]
